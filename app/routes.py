@@ -1,81 +1,74 @@
-import uuid
-import os
-import json
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTask
+import redis
+import string
+import random
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
+
 from app.database import get_db
-from app.models import URLItem
-from app.schemas import URLCreate, URLInfo
-import redis
+from app import models, schemas
 
 router = APIRouter()
-BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
 
-# Conexión a cliente de Redis (Caché en memoria)
-# En caso de no tener Redis instalado localmente, la API seguirá funcionando con fallback a DB
-try:
-    redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
-    redis_client.ping()
-    REDIS_AVAILABLE = True
-except Exception:
-    REDIS_AVAILABLE = False
+# Conexión a Redis para caché
+redis_client = redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
 
+def generate_short_id(length=6):
+    """Genera un ID alfanumérico aleatorio."""
+    return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
 
-def register_click_in_background(db: Session, short_id: str):
-    """Función que se ejecuta en segundo plano para no demorar la redirección del usuario."""
-    db_url = db.query(URLItem).filter(URLItem.short_id == short_id).first()
-    if db_url:
-        db_url.clicks += 1
-        db.commit()
+def increment_click_count_bg(short_id: str):
+    """Tarea en segundo plano para actualizar los clics."""
+    db_session = next(get_db())
+    try:
+        url_entry = db_session.query(models.URLItem).filter(models.URLItem.short_id == short_id).first()
+        if url_entry:
+            url_entry.clicks += 1
+            db_session.commit()
+    finally:
+        db_session.close()
 
+@router.post("/api/shorten", response_model=schemas.URLInfo, status_code=status.HTTP_201_CREATED)
+def create_short_url(request: Request, url_data: schemas.URLCreate, db: Session = Depends(get_db)):
+    """Crea un nuevo código corto para la URL proporcionada."""
+    existing_url = db.query(models.URLItem).filter(models.URLItem.original_url == str(url_data.original_url)).first()
+    if existing_url:
+        return existing_url
 
-@router.post("/api/shorten", response_model=URLInfo, status_code=status.HTTP_201_CREATED)
-def create_short_url(url_data: URLCreate, db: Session = Depends(get_db)):
-    short_id = str(uuid.uuid4())[:6]
-    
-    while db.query(URLItem).filter(URLItem.short_id == short_id).first():
-        short_id = str(uuid.uuid4())[:6]
+    short_id = generate_short_id()
+    while db.query(models.URLItem).filter(models.URLItem.short_id == short_id).first():
+        short_id = generate_short_id()
 
-    db_url = URLItem(original_url=str(url_data.original_url), short_id=short_id)
+    db_url = models.URLItem(original_url=str(url_data.original_url), short_id=short_id)
     db.add(db_url)
     db.commit()
     db.refresh(db_url)
 
-    # Guardar también en la Caché de Redis con tiempo de vida (TTL) de 24 horas
-    if REDIS_AVAILABLE:
-        redis_client.setex(name=short_id, time=86400, value=db_url.original_url)
-
-    return URLInfo(
-        original_url=db_url.original_url,
-        short_url=f"{BASE_URL}/{db_url.short_id}",
-        clicks=db_url.clicks,
-        created_at=db_url.created_at
-    )
-
+    redis_client.set(f"url:{short_id}", db_url.original_url, ex=86400)
+    return db_url
 
 @router.get("/{short_id}")
-def redirect_to_original(short_id: str, db: Session = Depends(get_db)):
-    target_url = None
+def redirect_to_target(short_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    """Redirige al enlace original utilizando la caché de Redis."""
+    cached_url = redis_client.get(f"url:{short_id}")
 
-    # 1. INTENTAR LEER DESDE LA CACHÉ (REDIS) -> Estrategia Cache-Aside
-    if REDIS_AVAILABLE:
-        target_url = redis_client.get(short_id)
+    if cached_url:
+        background_tasks.add_task(increment_click_count_bg, short_id)
+        return RedirectResponse(url=cached_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
-    # 2. SI NO ESTÁ EN REDIS, BUSCAR EN LA BASE DE DATOS (FALLBACK)
-    if not target_url:
-        db_url = db.query(URLItem).filter(URLItem.short_id == short_id).first()
-        if not db_url:
-            raise HTTPException(status_code=404, detail="URL no encontrada")
-        
-        target_url = db_url.original_url
-        
-        # Guardar en Redis para las próximas peticiones
-        if REDIS_AVAILABLE:
-            redis_client.setex(name=short_id, time=86400, value=target_url)
+    db_url = db.query(models.URLItem).filter(models.URLItem.short_id == short_id).first()
+    if not db_url:
+        raise HTTPException(status_code=404, detail="URL no encontrada")
 
-    # 3. REDIRECCIÓN INSTANTÁNEA + REGISTRO DE CLIC EN SEGUNDO PLANO
-    return RedirectResponse(
-        url=target_url, 
-        background=BackgroundTask(register_click_in_background, db, short_id)
-    )
+    redis_client.set(f"url:{short_id}", db_url.original_url, ex=86400)
+    background_tasks.add_task(increment_click_count_bg, short_id)
+
+    return RedirectResponse(url=db_url.original_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+
+@router.get("/api/analytics/{short_id}", response_model=schemas.URLInfo)
+def get_url_analytics(short_id: str, db: Session = Depends(get_db)):
+    """Obtiene las métricas y el contador de clics."""
+    db_url = db.query(models.URLItem).filter(models.URLItem.short_id == short_id).first()
+    if not db_url:
+        raise HTTPException(status_code=404, detail="URL no encontrada")
+    return db_url

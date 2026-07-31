@@ -1,15 +1,30 @@
 from fastapi import FastAPI
-from app.database import engine, Base
+from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from app.routes import router
+from app.database import engine, Base
 
-# Esto lee tus modelos y crea automáticamente el archivo de la base de datos SQLite
+# Crear las tablas en SQLite al arrancar
 Base.metadata.create_all(bind=engine)
 
+# Configurar el Limitador de Peticiones por IP del cliente
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI(
-    title="Acortador de URLs API",
-    description="API profunda para acortar enlaces y medir analíticas de clics.",
+    title="URL Shortener & Analytics API",
+    description="API robusta de acortador de URLs con almacenamiento en Redis, tareas en segundo plano y Rate Limiting.",
     version="1.0.0"
 )
 
-# Integrar las rutas que creamos en routes.py
+# Registrar el manejador de límite de peticiones
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Incluir las rutas de la API
 app.include_router(router)
+
+@app.get("/")
+def read_root():
+    return {"status": "online", "message": "API de Acortador de URLs activa"}
