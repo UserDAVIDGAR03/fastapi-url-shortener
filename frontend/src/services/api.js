@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 export const API_BASE_URL =
-  import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8000`;
+  import.meta.env.VITE_API_URL || 'http://192.168.1.66:8000';
 
 export function getOrCreateGuestId() {
   let guestId = localStorage.getItem('fast_url_guest_id');
