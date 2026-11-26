@@ -1,70 +1,159 @@
 import axios from 'axios';
 
-export const API_BASE_URL =
-  import.meta.env.VITE_API_URL || 'http://192.168.1.66:8000';
+const TOKEN_KEY = 'fast_url_token';
+const GUEST_ID_KEY = 'fast_url_guest_id';
+
+function resolveApiBaseUrl() {
+  if (import.meta.env.VITE_API_URL && import.meta.env.VITE_API_URL.trim() !== '') {
+    return import.meta.env.VITE_API_URL.trim().replace(/\/+$/, '');
+  }
+
+  if (typeof window !== 'undefined' && window.location) {
+    const protocol = window.location.protocol || 'http:';
+    const hostname = window.location.hostname || 'localhost';
+    return `${protocol}//${hostname}:8000`;
+  }
+
+  return 'http://localhost:8000';
+}
+
+export const API_BASE_URL = resolveApiBaseUrl();
+
+export function getToken() {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setToken(token) {
+  if (token) {
+    localStorage.setItem(TOKEN_KEY, token);
+  } else {
+    localStorage.removeItem(TOKEN_KEY);
+  }
+}
+
+export function clearToken() {
+  localStorage.removeItem(TOKEN_KEY);
+}
 
 export function getOrCreateGuestId() {
-  let guestId = localStorage.getItem('fast_url_guest_id');
+  let guestId = localStorage.getItem(GUEST_ID_KEY);
   if (!guestId) {
     guestId =
-      typeof crypto !== 'undefined' && crypto.randomUUID
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
         ? crypto.randomUUID()
-        : `guest_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-    localStorage.setItem('fast_url_guest_id', guestId);
+        : `guest_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
+    localStorage.setItem(GUEST_ID_KEY, guestId);
   }
   return guestId;
 }
 
+export function getGuestId() {
+  return localStorage.getItem(GUEST_ID_KEY);
+}
+
+export function clearGuestId() {
+  localStorage.removeItem(GUEST_ID_KEY);
+}
+
+export function buildShortUrl(shortId) {
+  const cleanId = String(shortId || '').replace(/^\/+/, '');
+  return `${API_BASE_URL}/${cleanId}`;
+}
+
 const api = axios.create({
   baseURL: API_BASE_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
 });
 
-api.interceptors.request.use((config) => {
-  const isGuest = localStorage.getItem('fast_url_guest_mode') === 'true';
-  const token = localStorage.getItem('fast_url_token');
+api.interceptors.request.use(
+  (config) => {
+    const token = getToken();
+    const isAuthEndpoint =
+      config.url?.includes('/auth/login') || config.url?.includes('/auth/register');
 
-  if (isGuest) {
-    delete config.headers.Authorization;
-    config.headers['X-Guest-Id'] = getOrCreateGuestId();
-  } else if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+    if (token && !isAuthEndpoint) {
+      config.headers.Authorization = `Bearer ${token}`;
+    } else if (!token) {
+      const guestId = getOrCreateGuestId();
+      config.headers['X-Guest-Id'] = guestId;
+    }
+
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401 && getToken()) {
+      clearToken();
+      window.dispatchEvent(new CustomEvent('fast-url:unauthorized'));
+    }
+    return Promise.reject(error);
   }
-  return config;
-});
+);
 
-export const registerUser = async (credentials) => {
-  const { data } = await api.post('/auth/register', credentials);
+// --- Autenticación ---
+export async function registerUser({ email, password }) {
+  const { data } = await api.post('/auth/register', { email, password });
   return data;
-};
+}
 
-export const loginUser = async (credentials) => {
-  const { data } = await api.post('/auth/login', credentials);
+export async function loginUser({ email, password }) {
+  const formData = new URLSearchParams();
+  formData.append('username', email);
+  formData.append('password', password);
+
+  const { data } = await api.post('/auth/login', formData, {
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+  });
+
+  if (data?.access_token) {
+    setToken(data.access_token);
+  }
+
   return data;
-};
+}
 
-export const shortenUrl = async (payload) => {
-  const { data } = await api.post('/api/shorten', payload);
-  return data;
-};
+export function logoutUser() {
+  clearToken();
+}
 
-export const getUrls = async () => {
+// --- Gestión de URLs ---
+export async function getUrls() {
   const { data } = await api.get('/api/urls');
   return data;
-};
+}
 
-export const toggleUrlStatus = async (shortId) => {
-  const { data } = await api.patch(`/api/urls/${shortId}/toggle`);
-  return data;
-};
+export async function shortenUrl({ original_url, custom_slug = null, expires_in_hours = null }) {
+  const payload = {
+    original_url,
+    ...(custom_slug ? { custom_slug } : {}),
+    ...(expires_in_hours ? { expires_in_hours: Number(expires_in_hours) } : {}),
+  };
 
-export const deleteUrl = async (shortId) => {
-  const { data } = await api.delete(`/api/urls/${shortId}`);
+  const { data } = await api.post('/api/shorten', payload);
   return data;
-};
+}
 
-export const getUrlAnalytics = async (shortId) => {
-  const { data } = await api.get(`/api/analytics/${shortId}`);
+export async function toggleUrlStatus(shortId) {
+  const { data } = await api.patch(`/api/urls/${encodeURIComponent(shortId)}/toggle`);
   return data;
-};
+}
+
+export async function deleteUrl(shortId) {
+  const { data } = await api.delete(`/api/urls/${encodeURIComponent(shortId)}`);
+  return data;
+}
+
+export async function getUrlAnalytics(shortId) {
+  const { data } = await api.get(`/api/urls/${encodeURIComponent(shortId)}/analytics`);
+  return data;
+}
 
 export default api;

@@ -1,44 +1,41 @@
-export default function StatsCards({ urls }) {
+export default function StatsCards({ urls = [] }) {
+  if (!urls.length) return null;
+
   const totalLinks = urls.length;
-  const activeLinks = urls.filter((u) => u.is_active).length;
-  const totalClicks = urls.reduce((acc, item) => acc + (item.clicks || 0), 0);
-  const topUrl = urls.reduce(
-    (max, item) => (item.clicks > (max?.clicks || 0) ? item : max),
-    null
-  );
+  const activeLinks = urls.filter((u) => u.is_active !== false).length;
+  const totalClicks = urls.reduce((acc, u) => acc + (u.clicks || 0), 0);
+  const topUrl = [...urls].sort((a, b) => (b.clicks || 0) - (a.clicks || 0))[0];
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-      <div className="bg-white border border-stone-200/90 rounded-xl p-5 flex items-center justify-between">
-        <div>
-          <p className="text-xs font-medium text-stone-500">Enlaces creados</p>
-          <p className="text-2xl font-bold text-stone-900 mt-1">{totalLinks}</p>
-        </div>
-        <span className="text-xs font-medium text-[#1E3A5F] bg-blue-50 px-2.5 py-1 rounded-full">
-          {activeLinks} {activeLinks === 1 ? 'activo' : 'activos'}
-        </span>
+    <div className="grid grid-cols-3 bg-white border border-zinc-200/90 rounded-xl divide-x divide-zinc-200/90">
+      <div className="p-4 sm:p-5">
+        <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+          ENLACES ACTIVOS
+        </p>
+        <p className="font-mono text-xl sm:text-2xl font-bold text-zinc-900 mt-1">
+          {activeLinks}
+          <span className="text-sm font-normal text-zinc-400">/{totalLinks}</span>
+        </p>
       </div>
 
-      <div className="bg-white border border-stone-200/90 rounded-xl p-5 flex items-center justify-between">
-        <div>
-          <p className="text-xs font-medium text-stone-500">Clics en total</p>
-          <p className="text-2xl font-bold text-stone-900 mt-1">{totalClicks}</p>
-        </div>
-        <span className="text-xs text-stone-400">redirecciones</span>
+      <div className="p-4 sm:p-5">
+        <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+          CLICS TOTALES
+        </p>
+        <p className="font-mono text-xl sm:text-2xl font-bold text-blue-600 mt-1">
+          {totalClicks}
+        </p>
       </div>
 
-      <div className="bg-white border border-stone-200/90 rounded-xl p-5 flex items-center justify-between gap-3 min-w-0">
-        <div className="min-w-0">
-          <p className="text-xs font-medium text-stone-500">Con más visitas</p>
-          <p className="text-lg font-bold text-[#C2410C] truncate mt-1">
-            {topUrl && topUrl.clicks > 0 ? `/${topUrl.short_id}` : 'Sin visitas aún'}
-          </p>
-        </div>
-        {topUrl && topUrl.clicks > 0 && (
-          <span className="text-xs font-semibold text-stone-700 bg-stone-100 px-2.5 py-1 rounded-full shrink-0">
-            {topUrl.clicks} {topUrl.clicks === 1 ? 'clic' : 'clics'}
-          </span>
-        )}
+      <div className="p-4 sm:p-5 min-w-0">
+        <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+          MÁS VISITADO
+        </p>
+        <p className="font-mono text-base sm:text-xl font-bold text-zinc-900 mt-1 truncate">
+          {topUrl && (topUrl.clicks || 0) > 0
+            ? `/${topUrl.short_id}`
+            : '—'}
+        </p>
       </div>
     </div>
   );

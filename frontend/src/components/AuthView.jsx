@@ -1,196 +1,210 @@
-import { useState } from 'react';
-import { ArrowLeft, Compass, AlertCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ArrowLeft, Link2, Terminal, CheckCircle2 } from 'lucide-react';
 import { loginUser, registerUser } from '../services/api';
-import SignalWavesBg from './SignalWavesBg';
+import { API_BASE_URL } from '../services/api';
 
-export default function AuthView({ initialMode = 'login', onAuthenticated, onBackToWelcome }) {
-  const [mode, setMode] = useState(initialMode); // 'login' | 'register'
+export default function AuthView({
+  initialMode = 'login',
+  onBack,
+  onAuthSuccess,
+}) {
+  const [isRegister, setIsRegister] = useState(initialMode === 'register');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  useEffect(() => {
+    setIsRegister(initialMode === 'register');
+    setError('');
+  }, [initialMode]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-
-    if (!email.trim() || !password) {
-      setError('Completa tu correo y contraseña.');
-      return;
-    }
-
-    if (mode === 'register' && password.length < 6) {
-      setError('La contraseña debe tener al menos 6 caracteres.');
-      return;
-    }
-
     setLoading(true);
     try {
-      const data =
-        mode === 'login'
-          ? await loginUser({ email: email.trim(), password })
-          : await registerUser({ email: email.trim(), password });
-
-      localStorage.setItem('fast_url_token', data.access_token);
-      localStorage.setItem('fast_url_email', data.email);
-      onAuthenticated({ token: data.access_token, email: data.email });
-    } catch (err) {
-      const detail = err.response?.data?.detail;
-      if (typeof detail === 'string') {
-        setError(detail);
-      } else {
-        setError('No se pudo completar la autenticación. Verifica tus datos.');
+      if (isRegister) {
+        await registerUser({ email, password });
       }
+      const res = await loginUser({ email, password });
+      if (res?.access_token) {
+        onAuthSuccess(res.access_token, email);
+      } else {
+        setError('No se recibió el token de acceso.');
+      }
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      setError(
+        typeof detail === 'string'
+          ? detail
+          : 'Credenciales inválidas o error de conexión.'
+      );
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#F4F2EC] text-[#141413] flex flex-col justify-between relative overflow-hidden selection:bg-[#E5391B] selection:text-white">
-      <SignalWavesBg />
-
-      <header className="relative z-10 border-b border-[#141413]/15 bg-[#FAF9F6]/85 backdrop-blur-md">
-        <div className="max-w-5xl mx-auto px-5 sm:px-8 h-16 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={onBackToWelcome}
-            className="inline-flex items-center gap-2 text-xs sm:text-sm font-semibold text-[#141413] hover:text-[#E5391B] bg-[#F4F2EC] hover:bg-white border border-[#141413]/20 px-4 py-2 rounded-full transition cursor-pointer"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>Regresar al welcome</span>
-          </button>
-
-          <div className="flex items-center gap-2">
-            <span className="w-7 h-7 rounded-full bg-[#E5391B] text-white flex items-center justify-center">
-              <Compass className="w-4 h-4" />
-            </span>
-            <span className="font-mono font-bold text-sm">fast-url</span>
+    <div className="min-h-screen bg-[#F7F6F2] text-zinc-900 flex flex-col justify-between">
+      {/* Barra superior minimalista */}
+      <header className="border-b border-zinc-200/90 bg-[#F7F6F2]/95">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+          <div className="flex items-center gap-2 font-semibold text-base tracking-tight text-zinc-900">
+            <Link2 className="w-4 h-4 text-blue-600 -rotate-45" />
+            <span>fast-url</span>
           </div>
+
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-600 hover:text-zinc-900 bg-white border border-zinc-200 px-3 py-1.5 rounded-lg transition cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Volver</span>
+            </button>
+          )}
         </div>
       </header>
 
-      <main className="relative z-10 flex-1 flex items-center justify-center px-5 py-10">
-        <div className="w-full max-w-md bg-[#FAF9F6]/95 backdrop-blur-sm border border-[#141413]/20 rounded-3xl p-6 sm:p-8 shadow-[8px_8px_0px_#141413] space-y-6">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <span className="text-xs font-mono font-semibold text-[#0F766E] block">
-                {mode === 'login' ? 'Acceso a tu cuenta' : 'Registro rápido'}
-              </span>
-              <h1 className="text-2xl font-extrabold tracking-tight text-[#141413] mt-0.5">
-                {mode === 'login' ? 'Iniciar sesión' : 'Crear cuenta'}
+      {/* Contenedor dividido */}
+      <main className="max-w-5xl w-full mx-auto px-4 sm:px-6 py-10 my-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
+          {/* Izquierda: Formulario limpio */}
+          <div className="lg:col-span-6 bg-white border border-zinc-200/90 rounded-xl p-6 sm:p-8 shadow-[0_2px_12px_rgba(0,0,0,0.03)] flex flex-col justify-between space-y-6">
+            <div className="space-y-2">
+              <p className="font-mono text-[11px] font-semibold uppercase tracking-wider text-blue-600">
+                {isRegister ? '(01) REGISTRO' : '(01) ACCESO'}
+              </p>
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900">
+                {isRegister ? 'Crea tu cuenta.' : 'Inicia sesión.'}
               </h1>
+              <p className="text-xs sm:text-sm text-zinc-600 leading-relaxed">
+                {isRegister
+                  ? 'Regístrate para guardar enlaces ilimitados, generar códigos QR y consultar el conteo de clics.'
+                  : 'Ingresa con tu correo para administrar tu historial de atajos.'}
+              </p>
             </div>
 
-            <div className="inline-flex bg-[#F4F2EC] border border-[#141413]/15 rounded-full p-1 text-xs font-semibold">
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="block font-mono text-[11px] font-semibold uppercase tracking-wider text-zinc-700">
+                  CORREO ELECTRÓNICO
+                </label>
+                <input
+                  type="email"
+                  required
+                  autoFocus
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="tu@correo.com"
+                  className="w-full bg-zinc-50 border border-zinc-200 focus:border-blue-600 focus:bg-white rounded-lg px-3.5 py-2.5 text-xs sm:text-sm text-zinc-900 focus:outline-none transition"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block font-mono text-[11px] font-semibold uppercase tracking-wider text-zinc-700">
+                  CONTRASEÑA
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full bg-zinc-50 border border-zinc-200 focus:border-blue-600 focus:bg-white rounded-lg px-3.5 py-2.5 text-xs sm:text-sm text-zinc-900 focus:outline-none transition"
+                />
+              </div>
+
+              {error && (
+                <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  {error}
+                </p>
+              )}
+
               <button
-                type="button"
-                onClick={() => {
-                  setMode('login');
-                  setError('');
-                }}
-                className={`px-3 py-1 rounded-full transition cursor-pointer ${
-                  mode === 'login'
-                    ? 'bg-[#141413] text-[#FAF9F6]'
-                    : 'text-[#5A5852] hover:text-[#141413]'
-                }`}
+                type="submit"
+                disabled={loading}
+                className="w-full bg-zinc-900 hover:bg-zinc-800 disabled:bg-zinc-300 text-white text-xs sm:text-sm font-medium py-2.5 rounded-lg transition cursor-pointer"
               >
-                Login
+                {loading
+                  ? 'Procesando...'
+                  : isRegister
+                  ? 'Crear cuenta y entrar'
+                  : 'Entrar al espacio de trabajo'}
               </button>
+            </form>
+
+            <div className="pt-4 border-t border-zinc-100 flex items-center justify-between text-xs">
+              <span className="text-zinc-500">
+                {isRegister ? '¿Ya tienes cuenta?' : '¿Aún no tienes cuenta?'}
+              </span>
               <button
                 type="button"
                 onClick={() => {
-                  setMode('register');
+                  setIsRegister(!isRegister);
                   setError('');
                 }}
-                className={`px-3 py-1 rounded-full transition cursor-pointer ${
-                  mode === 'register'
-                    ? 'bg-[#141413] text-[#FAF9F6]'
-                    : 'text-[#5A5852] hover:text-[#141413]'
-                }`}
+                className="font-semibold text-blue-600 hover:underline cursor-pointer"
               >
-                Register
+                {isRegister ? 'Iniciar sesión →' : 'Crear cuenta →'}
               </button>
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-[#141413] mb-1.5">
-                Correo electrónico
-              </label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="correo@ejemplo.com"
-                className="w-full bg-[#F4F2EC] border border-[#141413]/20 focus:border-[#E5391B] rounded-xl px-4 py-2.5 text-sm text-[#141413] placeholder-[#8A877E] outline-none transition"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-[#141413] mb-1.5">
-                Contraseña
-              </label>
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Mínimo 6 caracteres"
-                className="w-full bg-[#F4F2EC] border border-[#141413]/20 focus:border-[#E5391B] rounded-xl px-4 py-2.5 text-sm text-[#141413] placeholder-[#8A877E] outline-none transition"
-              />
-            </div>
-
-            {error && (
-              <div className="p-3 bg-[#E5391B]/10 border border-[#E5391B]/40 rounded-xl flex items-center gap-2 text-[#B91C1C] text-xs font-medium">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{error}</span>
+          {/* Derecha: Bloque técnico estilo consola */}
+          <div className="lg:col-span-6 bg-zinc-950 text-zinc-100 border border-zinc-800 rounded-xl p-6 sm:p-8 flex flex-col justify-between space-y-6">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-[11px] font-mono text-zinc-400 border-b border-zinc-800 pb-3">
+                <span className="inline-flex items-center gap-1.5 text-blue-400">
+                  <Terminal className="w-3.5 h-3.5" />
+                  <span>SESIÓN JWT</span>
+                </span>
+                <span>{API_BASE_URL.replace(/^https?:\/\//, '')}</span>
               </div>
-            )}
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-[#E5391B] hover:bg-[#C82E13] disabled:opacity-50 text-white font-semibold text-sm py-3 rounded-full transition cursor-pointer"
-            >
-              {loading
-                ? 'Cargando...'
-                : mode === 'login'
-                  ? 'Entrar al panel'
-                  : 'Registrarme'}
-            </button>
-          </form>
+              <h2 className="text-xl font-bold tracking-tight text-white pt-1">
+                {isRegister
+                  ? 'Sin límite de enlaces activos.'
+                  : 'Tus atajos sincronizados.'}
+              </h2>
 
-          <div className="pt-3 border-t border-[#141413]/15 flex items-center justify-between text-xs">
-            <button
-              type="button"
-              onClick={onBackToWelcome}
-              className="font-semibold text-[#4A4945] hover:text-[#141413] inline-flex items-center gap-1 cursor-pointer"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Volver al welcome</span>
-            </button>
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                Mientras el modo invitado permite probar la herramienta con 1 enlace, una cuenta registrada guarda tu historial completo en PostgreSQL.
+              </p>
+            </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                setMode(mode === 'login' ? 'register' : 'login');
-                setError('');
-              }}
-              className="font-semibold text-[#0F766E] hover:underline cursor-pointer"
-            >
-              {mode === 'login' ? '¿No tienes cuenta? Regístrate' : '¿Ya tienes cuenta? Entra'}
-            </button>
+            {/* Bloque JSON ilustrativo del flujo */}
+            <div className="bg-zinc-900/90 border border-zinc-800 rounded-lg p-4 font-mono text-xs text-zinc-300 space-y-1.5 overflow-x-auto">
+              <p className="text-[10px] text-zinc-500 uppercase">
+                RESPUESTA DE AUTENTICACIÓN
+              </p>
+              <pre className="leading-relaxed text-[11px] sm:text-xs">{`{
+  "token_type": "bearer",
+  "scope": "links:unlimited",
+  "cache": "redis-enabled"
+}`}</pre>
+            </div>
+
+            <ul className="space-y-2 text-xs text-zinc-300 pt-2 border-t border-zinc-800">
+              <li className="flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span>Generación y descarga de códigos QR en PNG</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span>Activación, pausa y eliminación de enlaces al instante</span>
+              </li>
+            </ul>
           </div>
         </div>
       </main>
 
-      <footer className="relative z-10 border-t border-[#141413]/15 py-3.5 px-5 sm:px-8 bg-[#FAF9F6]/70">
-        <div className="max-w-5xl mx-auto flex items-center justify-between text-xs font-mono text-[#6E6C65]">
+      <footer className="border-t border-zinc-200/90 bg-white">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between text-[11px] font-mono text-zinc-500">
           <span>fast-url</span>
-          <span>Autenticación JWT</span>
+          <span>FastAPI · React · PostgreSQL · Redis</span>
         </div>
       </footer>
     </div>

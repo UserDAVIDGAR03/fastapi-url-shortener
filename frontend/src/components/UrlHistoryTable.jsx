@@ -1,252 +1,229 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
-  RefreshCw,
-  ExternalLink,
+  Clock,
   Copy,
   Check,
-  Search,
-  QrCode,
   BarChart2,
-  Pause,
-  Play,
+  MoreVertical,
+  QrCode,
+  Power,
   Trash2,
 } from 'lucide-react';
-import { API_BASE_URL, toggleUrlStatus, deleteUrl } from '../services/api';
+import { API_BASE_URL } from '../services/api';
+
+function formatRelativeTime(dateValue) {
+  if (!dateValue) return 'Reciente';
+  const parsed = new Date(dateValue);
+  if (Number.isNaN(parsed.getTime())) return 'Reciente';
+  const diffSec = Math.max(1, Math.floor((Date.now() - parsed.getTime()) / 1000));
+  if (diffSec < 60) return `Hace ${diffSec} s`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `Hace ${diffMin} min`;
+  const diffHours = Math.floor(diffMin / 60);
+  if (diffHours < 24) return `Hace ${diffHours} h`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `Hace ${diffDays} d`;
+}
 
 export default function UrlHistoryTable({
-  urls,
+  urls = [],
   loading,
   copiedId,
   onCopy,
-  onRefresh,
   onOpenQr,
   onOpenAnalytics,
+  onToggle,
+  onDelete,
+  onViewAll,
+  compact = false,
 }) {
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [openMenuId, setOpenMenuId] = useState(null);
+  const menuContainerRef = useRef(null);
 
-  const filteredUrls = urls.filter((item) => {
-    const matchesText =
-      item.original_url.toLowerCase().includes(search.toLowerCase()) ||
-      item.short_id.toLowerCase().includes(search.toLowerCase());
+  useEffect(() => {
+    const handleOutside = (e) => {
+      if (menuContainerRef.current && !menuContainerRef.current.contains(e.target)) {
+        setOpenMenuId(null);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, []);
 
-    if (!matchesText) return false;
-    if (statusFilter === 'active') return item.is_active;
-    if (statusFilter === 'paused') return !item.is_active;
-    return true;
-  });
-
-  const handleToggle = async (shortId) => {
-    try {
-      await toggleUrlStatus(shortId);
-      onRefresh();
-    } catch (err) {
-      console.error('Error al cambiar estado:', err);
-    }
-  };
-
-  const handleDelete = async (shortId) => {
-    try {
-      await deleteUrl(shortId);
-      onRefresh();
-    } catch (err) {
-      console.error('Error al eliminar:', err);
-    }
-  };
-
-  const formatDomain = (url) => {
-    try {
-      return new URL(url).hostname.replace(/^www\./, '');
-    } catch {
-      return url;
-    }
-  };
+  const rows = compact ? urls.slice(0, 4) : urls;
 
   return (
-    <section className="flex-1 flex flex-col bg-white border border-stone-200/90 rounded-xl overflow-hidden min-h-[340px]">
-      <div className="px-5 py-4 border-b border-stone-200/80 flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold text-stone-900">Tus enlaces</h2>
-          <p className="text-xs text-stone-500">
-            Administra tus rutas, consulta estadísticas o genera un código QR
-          </p>
+    <div
+      ref={menuContainerRef}
+      className="bg-white border border-zinc-200/90 rounded-xl shadow-[0_2px_10px_rgba(0,0,0,0.02)] overflow-visible"
+    >
+      <div className="px-5 py-3.5 flex items-center justify-between border-b border-zinc-100">
+        <div className="flex items-center gap-2 font-mono text-[11px] font-semibold uppercase tracking-wider text-zinc-700">
+          <Clock className="w-3.5 h-3.5 text-zinc-400" />
+          <span>
+            {compact
+              ? 'TUS ENLACES RECIENTES'
+              : `HISTORIAL DE ENLACES (${urls.length})`}
+          </span>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <div className="inline-flex bg-stone-100 p-1 rounded-lg">
-            {[
-              { id: 'all', label: 'Todos' },
-              { id: 'active', label: 'Activos' },
-              { id: 'paused', label: 'Pausados' },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setStatusFilter(tab.id)}
-                className={`px-3 py-1 rounded-md transition cursor-pointer ${
-                  statusFilter === tab.id
-                    ? 'bg-white text-stone-900 font-medium shadow-2xs'
-                    : 'text-stone-600 hover:text-stone-900'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="relative flex-1 sm:w-48">
-            <Search className="w-3.5 h-3.5 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar..."
-              className="w-full bg-stone-50 border border-stone-200 focus:border-[#1E3A5F] focus:bg-white rounded-lg pl-8 pr-3 py-1.5 text-xs text-stone-800 placeholder-stone-400 outline-none transition"
-            />
-          </div>
-
+        {compact && onViewAll && urls.length > 0 && (
           <button
             type="button"
-            onClick={onRefresh}
-            className="text-stone-700 hover:text-stone-950 bg-stone-50 hover:bg-stone-100 px-3 py-1.5 rounded-lg border border-stone-200 transition inline-flex items-center gap-1.5 cursor-pointer"
+            onClick={onViewAll}
+            className="text-xs font-semibold text-blue-600 hover:underline cursor-pointer"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-            <span>Actualizar</span>
+            Ver todo →
           </button>
-        </div>
+        )}
       </div>
 
-      {loading && urls.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center py-14 text-xs text-stone-500">
+      {loading ? (
+        <div className="px-5 py-6 text-xs text-zinc-400 font-mono">
           Cargando enlaces...
         </div>
-      ) : filteredUrls.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center py-14 text-xs text-stone-500">
-          No hay enlaces para mostrar con este filtro.
+      ) : rows.length === 0 ? (
+        <div className="px-5 py-6 text-xs text-zinc-500">
+          Aún no hay enlaces creados. Ingresa una URL arriba para generar tu primer atajo.
         </div>
       ) : (
-        <div className="divide-y divide-stone-100 flex-1">
-          {filteredUrls.map((item) => {
-            const isExpired =
-              item.expires_at && new Date(item.expires_at) < new Date();
-            const canRedirect = item.is_active && !isExpired;
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-zinc-100 font-mono text-[10px] uppercase tracking-wider text-zinc-400">
+                <th className="py-2.5 pl-5 pr-3">Enlace original</th>
+                <th className="py-2.5 px-3">Atajo</th>
+                <th className="py-2.5 px-3">Creado</th>
+                <th className="py-2.5 px-3 text-right">Clicks</th>
+                <th className="py-2.5 pl-3 pr-5 text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-100 text-xs">
+              {rows.map((item) => {
+                const shortUrl = `${API_BASE_URL}/${item.short_id}`;
+                const isCopied = copiedId === item.short_id;
+                const isActive = item.is_active !== false;
 
-            return (
-              <div
-                key={item.id}
-                className="px-5 py-4 hover:bg-stone-50/80 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-              >
-                <div className="min-w-0 space-y-1">
-                  <div className="flex items-center gap-2.5 flex-wrap">
-                    <a
-                      href={`${API_BASE_URL}/${item.short_id}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={() => setTimeout(onRefresh, 600)}
-                      className={`font-semibold text-sm inline-flex items-center gap-1 ${
-                        canRedirect
-                          ? 'text-[#1E3A5F] hover:underline'
-                          : 'line-through text-stone-400'
-                      }`}
-                    >
-                      <span>/{item.short_id}</span>
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </a>
+                return (
+                  <tr key={item.short_id} className="hover:bg-zinc-50/80 transition">
+                    <td className="py-3 pl-5 pr-3 max-w-[260px]">
+                      <a
+                        href={item.original_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-zinc-700 hover:text-blue-600 truncate block"
+                        title={item.original_url}
+                      >
+                        {item.original_url}
+                      </a>
+                    </td>
 
-                    {isExpired ? (
-                      <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-red-50 text-red-700">
-                        Expirado
-                      </span>
-                    ) : item.is_active ? (
-                      <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
-                        Activo
-                      </span>
-                    ) : (
-                      <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-stone-100 text-stone-600">
-                        Pausado
-                      </span>
-                    )}
-                  </div>
+                    <td className="py-3 px-3 font-mono whitespace-nowrap">
+                      <a
+                        href={shortUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={`font-medium hover:underline ${
+                          isActive ? 'text-blue-600' : 'text-zinc-400 line-through'
+                        }`}
+                      >
+                        {shortUrl}
+                      </a>
+                    </td>
 
-                  <p
-                    className="text-xs text-stone-500 truncate max-w-xl"
-                    title={item.original_url}
-                  >
-                    <span className="font-medium text-stone-700">
-                      {formatDomain(item.original_url)}
-                    </span>{' '}
-                    · {item.original_url}
-                  </p>
-                </div>
+                    <td className="py-3 px-3 text-zinc-500 whitespace-nowrap">
+                      {formatRelativeTime(item.created_at)}
+                    </td>
 
-                <div className="flex items-center justify-between sm:justify-end gap-4 shrink-0">
-                  <div className="text-left sm:text-right">
-                    <span className="text-sm font-bold text-stone-900">{item.clicks}</span>
-                    <span className="text-xs text-stone-400 ml-1">
-                      {item.clicks === 1 ? 'clic' : 'clics'}
-                    </span>
-                  </div>
+                    <td className="py-3 px-3 text-right font-mono font-semibold text-zinc-800 whitespace-nowrap">
+                      {item.clicks ?? 0}
+                    </td>
 
-                  <div className="inline-flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => onCopy(item.short_id)}
-                      title="Copiar enlace"
-                      className="p-2 text-stone-500 hover:text-[#1E3A5F] hover:bg-stone-100 rounded-lg transition cursor-pointer"
-                    >
-                      {copiedId === item.short_id ? (
-                        <Check className="w-4 h-4 text-emerald-600" />
-                      ) : (
-                        <Copy className="w-4 h-4" />
+                    <td className="py-3 pl-3 pr-5 text-right whitespace-nowrap relative">
+                      <div className="inline-flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => onCopy(item.short_id)}
+                          className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 transition cursor-pointer"
+                          title="Copiar atajo"
+                        >
+                          {isCopied ? (
+                            <Check className="w-3.5 h-3.5 text-emerald-600" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => onOpenAnalytics?.(item.short_id)}
+                          className="p-1.5 rounded-md text-zinc-500 hover:text-blue-600 hover:bg-zinc-100 transition cursor-pointer"
+                          title="Ver estadísticas"
+                        >
+                          <BarChart2 className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setOpenMenuId((prev) =>
+                              prev === item.short_id ? null : item.short_id
+                            )
+                          }
+                          className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 transition cursor-pointer"
+                          title="Más acciones"
+                        >
+                          <MoreVertical className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      {openMenuId === item.short_id && (
+                        <div className="absolute right-5 top-10 w-40 bg-white border border-zinc-200 rounded-xl shadow-lg py-1 z-30 text-left text-xs">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOpenMenuId(null);
+                              onOpenQr?.(item.short_id);
+                            }}
+                            className="w-full px-3 py-1.5 text-zinc-700 hover:bg-zinc-50 flex items-center gap-2 cursor-pointer"
+                          >
+                            <QrCode className="w-3.5 h-3.5 text-zinc-400" />
+                            <span>Código QR</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOpenMenuId(null);
+                              onToggle?.(item.short_id);
+                            }}
+                            className="w-full px-3 py-1.5 text-zinc-700 hover:bg-zinc-50 flex items-center gap-2 cursor-pointer"
+                          >
+                            <Power className="w-3.5 h-3.5 text-zinc-400" />
+                            <span>{isActive ? 'Desactivar' : 'Activar'}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOpenMenuId(null);
+                              onDelete?.(item.short_id);
+                            }}
+                            className="w-full px-3 py-1.5 text-red-600 hover:bg-red-50 flex items-center gap-2 cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Eliminar</span>
+                          </button>
+                        </div>
                       )}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => onOpenQr(item.short_id)}
-                      title="Ver código QR"
-                      className="p-2 text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition cursor-pointer"
-                    >
-                      <QrCode className="w-4 h-4" />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => onOpenAnalytics(item.short_id)}
-                      title="Ver historial de clics"
-                      className="p-2 text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition cursor-pointer"
-                    >
-                      <BarChart2 className="w-4 h-4" />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleToggle(item.short_id)}
-                      title={item.is_active ? 'Pausar enlace' : 'Reactivar enlace'}
-                      className="p-2 text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition cursor-pointer"
-                    >
-                      {item.is_active ? (
-                        <Pause className="w-4 h-4" />
-                      ) : (
-                        <Play className="w-4 h-4 text-[#1E3A5F]" />
-                      )}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(item.short_id)}
-                      title="Eliminar enlace"
-                      className="p-2 text-stone-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
-    </section>
+    </div>
   );
 }
