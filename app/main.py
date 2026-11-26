@@ -1,30 +1,66 @@
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
-from app.routes import router
-from app.database import engine, Base
+from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
-# Crear las tablas en SQLite al arrancar
+from app.auth import create_access_token, hash_password, verify_password
+from app.database import Base, engine, get_db
+from app.models import User
+from app.schemas import AuthResponse, UserLogin, UserRegister
+from app import routes
+
 Base.metadata.create_all(bind=engine)
 
-# Configurar el Limitador de Peticiones por IP del cliente
-limiter = Limiter(key_func=get_remote_address)
+# Asegura columnas user_id y guest_id si la tabla urls ya existía
+with engine.begin() as conn:
+    conn.execute(text("ALTER TABLE urls ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"))
+    conn.execute(text("ALTER TABLE urls ADD COLUMN IF NOT EXISTS guest_id VARCHAR(64)"))
 
-app = FastAPI(
-    title="URL Shortener & Analytics API",
-    description="API robusta de acortador de URLs con almacenamiento en Redis, tareas en segundo plano y Rate Limiting.",
-    version="1.0.0"
+app = FastAPI(title="Fast URL Shortener")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# Registrar el manejador de límite de peticiones
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Incluir las rutas de la API
-app.include_router(router)
+@app.post("/auth/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
+def register(payload: UserRegister, db: Session = Depends(get_db)):
+    normalized_email = payload.email.strip().lower()
+    existing = db.query(User).filter(User.email == normalized_email).first()
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Ya existe una cuenta registrada con ese correo.",
+        )
 
-@app.get("/")
-def read_root():
-    return {"status": "online", "message": "API de Acortador de URLs activa"}
+    user = User(
+        email=normalized_email,
+        password_hash=hash_password(payload.password),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    token = create_access_token(user.id, user.email)
+    return AuthResponse(access_token=token, email=user.email)
+
+
+@app.post("/auth/login", response_model=AuthResponse)
+def login(payload: UserLogin, db: Session = Depends(get_db)):
+    normalized_email = payload.email.strip().lower()
+    user = db.query(User).filter(User.email == normalized_email).first()
+    if not user or not verify_password(payload.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Correo o contraseña incorrectos.",
+        )
+
+    token = create_access_token(user.id, user.email)
+    return AuthResponse(access_token=token, email=user.email)
+
+
+app.include_router(routes.router)

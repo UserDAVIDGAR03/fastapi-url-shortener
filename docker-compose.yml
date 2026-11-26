@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   web:
     build: .
@@ -10,11 +8,21 @@ services:
       - .:/app
     environment:
       - DATABASE_URL=postgresql://postgres:secretpassword@db:5432/url_shortener_db
-      - REDIS_HOST=redis   # <-- Debe decir "redis", no "localhost"
+      - REDIS_HOST=redis
       - REDIS_PORT=6379
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  frontend:
+    build: ./frontend
+    container_name: react_url_shortener
+    ports:
+      - "8085:80"
+    depends_on:
+      - web
 
   db:
     image: postgres:15-alpine
@@ -24,9 +32,14 @@ services:
       - POSTGRES_PASSWORD=secretpassword
       - POSTGRES_DB=url_shortener_db
     ports:
-      - "5432:5432"
+      - "15432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d url_shortener_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
